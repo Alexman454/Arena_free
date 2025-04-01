@@ -4,21 +4,31 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Разрешаем доступ со всех источников
+        methods: ["GET", "POST"]
+    }
+});
 
+const cors = require("cors"); // Устанавливаем CORS
+app.use(cors({
+    origin: "*", // Укажи точный адрес, с которого открываешь index.html
+    methods: ["GET", "POST"]
+}));
 // Обработка подключения клиента
 io.on("connection", (socket) => {
-    console.log("Новый клиент подключился:", socket.id);
+    console.log("New client connected:", socket.id);
 
     // Пример получения события "move" от клиента
     socket.on("move", (data) => {
-        console.log("Получено событие move:", data);
+        console.log("Happend move:", data);
         // Рассылаем данные всем подключенным клиентам
         io.emit("playerMoved", data);
     });
 
     socket.on("disconnect", () => {
-        console.log("Клиент отключился:", socket.id);
+        console.log("Client disconnected:", socket.id);
     });
 });
 
