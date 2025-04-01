@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Game Arena</title>
+</head>
+<body>
+    <h1>Игра Арену</h1>
+    <!-- Подключаем Socket.IO клиентскую библиотеку -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+    const socket = io("http://localhost:3000");
+
+    // Пример отправки события "move" на сервер
+    function sendMove() {
+      const data = { x: Math.random() * 500, y: Math.random() * 500 };
+      socket.emit("move", data);
+      console.log("Send move:", data);
+    }
+
+    // Получаем событие "playerMoved" от сервера
+    socket.on("playerMoved", (data) => {
+      console.log("Another playr move:", data);
+    });
+
+    // Для примера, отправляем событие через 3 секунды
+    setTimeout(sendMove, 300);
+    </script>
+</body>
+</html>
