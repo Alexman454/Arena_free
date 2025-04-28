@@ -6,6 +6,8 @@
 </head>
 <body>
     <h1>Игра Арену</h1>
+	<!-- Добавляем канвас -->
+    <canvas id="game" width="800" height="600"></canvas>
     <!-- Подключаем Socket.IO клиентскую библиотеку -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
@@ -22,7 +24,55 @@
     socket.on("playerMoved", (data) => {
       console.log("Another playr move:", data);
     });
+	const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
 
+    let playerId = null;
+    const players = {};
+
+    socket.on("init", (data) => {
+      playerId = data.id;
+      Object.assign(players, data.players);
+      draw();
+    });
+
+    socket.on("playerJoined", ({ id, player }) => {
+      players[id] = player;
+    });
+
+    socket.on("update", ({ id, x, y }) => {
+      if (players[id]) {
+        players[id].x = x;
+        players[id].y = y;
+      }
+    });
+
+    socket.on("playerLeft", (id) => {
+      delete players[id];
+    });
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const id in players) {
+        const p = players[id];
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 30, 30);
+      }
+      requestAnimationFrame(draw);
+    }
+
+    let speed = 5;
+    document.addEventListener("keydown", (e) => {
+      const me = players[playerId];
+      if (!me) return;
+
+      if (e.key === "ArrowUp") me.y -= speed;
+      if (e.key === "ArrowDown") me.y += speed;
+      if (e.key === "ArrowLeft") me.x -= speed;
+      if (e.key === "ArrowRight") me.x += speed;
+
+      socket.emit("move", { x: me.x, y: me.y });
+    });
     // Для примера, отправляем событие через 3 секунды
     setTimeout(sendMove, 300);
     </script>
