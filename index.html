@@ -3,24 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <title>Game Arena</title>
+	<style>
+    canvas {
+		background: #222;
+		display: block;
+		margin: 0 auto;
+    }
+	h1 {
+		text-align: center;
+	}
+  </style>
 </head>
 <body>
-    <h1>Игра Арену</h1>
-	<!-- Добавляем канвас -->
+    <h1>Arena 2D</h1>
     <canvas id="game" width="800" height="600"></canvas>
-    <!-- Подключаем Socket.IO клиентскую библиотеку -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-    const socket = io("http://localhost:3000");
+    const socket = io("http://26.252.121.144:3000");
 
-    // Пример отправки события "move" на сервер
     function sendMove() {
       const data = { x: Math.random() * 500, y: Math.random() * 500 };
       socket.emit("move", data);
       console.log("Send move:", data);
     }
 
-    // Получаем событие "playerMoved" от сервера
     socket.on("playerMoved", (data) => {
       console.log("Another playr move:", data);
     });
@@ -73,7 +79,7 @@
 
       socket.emit("move", { x: me.x, y: me.y });
     });
-    // Для примера, отправляем событие через 3 секунды
+
     setTimeout(sendMove, 300);
     </script>
 </body>
