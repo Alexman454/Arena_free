@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
     <title>Game Arena</title>
     <style>
         canvas {
@@ -20,81 +20,66 @@
     <canvas id="game" width="800" height="600"></canvas>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        const socket = io("http://localhost:3000");
+        const socket = io("http://26.252.121.144:3000");
 
         const canvas = document.getElementById("game");
         const ctx = canvas.getContext("2d");
 
         let playerId = null;
-        const players = {};
+        let players = {};
         const bullets = [];
         let obstacles = [];
 
         socket.on("init", (data) => {
             playerId = data.id;
-            Object.assign(players, data.players);
+            players = data.players;
+            obstacles = data.obstacles || [];
             draw();
             gameLoop();
         });
-        socket.on("obstacles", (data) => {
-            obstacles = data;
-        });
-        socket.on("playerJoined", ({ id, player }) => {
-            players[id] = player;
-        });
-        socket.on("update", ({ id, x, y, hp }) => {
-            if (players[id]) {
-                players[id].x = x;
-                players[id].y = y;
-                players[id].hp = hp;
-            }
-        });
-        socket.on("playerLeft", (id) => {
-            delete players[id];
-        });
+
         socket.on("bulletFired", (bullet) => {
             bullets.push(bullet);
         });
 
-        function collides(x, y) {
-            for (const o of obstacles) {
-                if (
-                    x < o.x + o.width &&
-                    x + 30 > o.x &&
-                    y < o.y + o.height &&
-                    y + 30 > o.y
-                ) return true;
-            }
-            for (const id in players) {
-                if (id === playerId) continue;
-                const p = players[id];
-                if (
-                    x < p.x + 30 &&
-                    x + 30 > p.x &&
-                    y < p.y + 30 &&
-                    y + 30 > p.y
-                ) return true;
-            }
-            return false;
-        }
+        socket.on("playerJoined", ({ id, player }) => {
+            players[id] = player;
+        });
 
-        function drawObstacles() {
-            ctx.fillStyle = "gray";
-            for (const o of obstacles) {
-                ctx.fillRect(o.x, o.y, o.width, o.height);
+        socket.on("update", ({ id, x, y, hp }) => {
+            if (players[id]) {
+                players[id].x = x;
+                players[id].y = y;
+                if (hp !== undefined) players[id].hp = hp;
             }
-        }
+        });
+
+        socket.on("playerLeft", (id) => {
+            delete players[id];
+        });
+
+        socket.on("roundRestart", ({ players: newPlayers, obstacles: newObstacles }) => {
+            // Заменяем игроков и препятствия полностью новыми данными с сервера
+            players = newPlayers;
+            obstacles = newObstacles;
+        });
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawObstacles();
 
+            // Рисуем препятствия
+            for (const obs of obstacles) {
+                ctx.fillStyle = obs.color || "gray";
+                ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+            }
+
+            // Рисуем игроков
             for (const id in players) {
                 const p = players[id];
-
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, 30, 30);
 
+                // HP бар
                 ctx.fillStyle = "red";
                 ctx.fillRect(p.x, p.y - 10, 30, 5);
                 ctx.fillStyle = "lime";
@@ -107,6 +92,7 @@
                 }
             }
 
+            // Рисуем пули
             ctx.fillStyle = "yellow";
             for (const b of bullets) {
                 ctx.beginPath();
@@ -128,7 +114,7 @@
         document.addEventListener("keydown", (e) => {
             if (["w", "a", "s", "d"].includes(e.key.toLowerCase())) {
                 const me = players[playerId];
-                if (!me) return;
+                if (!me || me.hp <= 0) return; // Нельзя стрелять мёртвым
 
                 let dir = { x: 0, y: 0 };
                 if (e.key === "w") dir.y = -1;
@@ -140,54 +126,71 @@
             }
             if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
         });
+
         document.addEventListener("keyup", (e) => {
             if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
         });
+        function isCollidingWithObstacle(x, y) {
+            for (const obs of obstacles) {
+                if (
+                    x + 30 > obs.x &&
+                    x < obs.x + obs.w &&
+                    y + 30 > obs.y &&
+                    y < obs.y + obs.h
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function isCollidingWithPlayers(x, y) {
+            for (const id in players) {
+                if (id === playerId) continue;
+                const p = players[id];
+                if (
+                    x + 30 > p.x &&
+                    x < p.x + 30 &&
+                    y + 30 > p.y &&
+                    y < p.y + 30
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         function gameLoop() {
             const me = players[playerId];
-            if (!me) {
-                requestAnimationFrame(gameLoop);
-                return;
-            }
+            if (me && me.hp > 0) {
+                let newX = me.x;
+                let newY = me.y;
+                let moved = false;
 
-            let newX = me.x;
-            let newY = me.y;
-            let moved = false;
+                if (keys.ArrowUp) newY -= speed;
+                if (keys.ArrowDown) newY += speed;
+                if (keys.ArrowLeft) newX -= speed;
+                if (keys.ArrowRight) newX += speed;
 
-            if (keys.ArrowUp) newY -= speed;
-            if (keys.ArrowDown) newY += speed;
-            if (keys.ArrowLeft) newX -= speed;
-            if (keys.ArrowRight) newX += speed;
+                if (
+                    newX >= 0 &&
+                    newX <= canvas.width - 30 &&
+                    newY >= 0 &&
+                    newY <= canvas.height - 30 &&
+                    !isCollidingWithObstacle(newX, newY) &&
+                    !isCollidingWithPlayers(newX, newY)
+                ) {
+                    me.x = newX;
+                    me.y = newY;
+                    moved = true;
+                }
 
-            newX = Math.max(0, Math.min(canvas.width - 30, newX));
-            newY = Math.max(0, Math.min(canvas.height - 30, newY));
-
-            if (!collides(newX, newY)) {
-                me.x = newX;
-                me.y = newY;
-                moved = true;
-            }
-
-            if (moved) {
-                socket.emit("move", { x: me.x, y: me.y });
-            }
-
-            updateBullets();
-            requestAnimationFrame(gameLoop);
-        }
-
-        function updateBullets() {
-            for (const b of bullets) {
-                b.x += b.dir.x * 8;
-                b.y += b.dir.y * 8;
-            }
-            for (let i = bullets.length - 1; i >= 0; i--) {
-                const b = bullets[i];
-                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
-                    bullets.splice(i, 1);
+                if (moved) {
+                    socket.emit("move", { x: me.x, y: me.y });
                 }
             }
+
+            requestAnimationFrame(gameLoop);
         }
     </script>
 </body>

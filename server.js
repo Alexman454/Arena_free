@@ -1,45 +1,52 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
-const cors = require("cors");
 app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
-
+let restarting = false;
 const players = {};
 const bullets = [];
-const obstacles = [
-    { x: 200, y: 150, width: 100, height: 20 },
-    { x: 500, y: 300, width: 20, height: 100 },
-    { x: 300, y: 450, width: 150, height: 20 },
-];
+const obstacles = [];
 
-// Проверка на коллизию при спавне
-function isSpawnValid(x, y) {
-    return !obstacles.some(o =>
-        x < o.x + o.width &&
-        x + 30 > o.x &&
-        y < o.y + o.height &&
-        y + 30 > o.y
-    );
+function generateObstacles() {
+    obstacles.length = 0;
+    for (let i = 0; i < 5; i++) {
+        obstacles.push({
+            x: Math.floor(Math.random() * 700),
+            y: Math.floor(Math.random() * 500),
+            w: 50,
+            h: 50,
+            color: "#" + Math.floor(Math.random() * 16777215).toString(16),
+        });
+    }
 }
+generateObstacles();
 
-function getSafeSpawn() {
-    let x, y, attempts = 0;
+function getRandomPositionAvoidingObstacles() {
+    let x, y, valid;
     do {
-        x = Math.random() * (800 - 30);
-        y = Math.random() * (600 - 30);
-        attempts++;
-        if (attempts > 50) break;
-    } while (!isSpawnValid(x, y));
+        x = Math.floor(Math.random() * (800 - 30));
+        y = Math.floor(Math.random() * (600 - 30));
+        valid = true;
+        for (const obs of obstacles) {
+            if (
+                x + 30 > obs.x &&
+                x < obs.x + obs.w &&
+                y + 30 > obs.y &&
+                y < obs.y + obs.h
+            ) {
+                valid = false;
+                break;
+            }
+        }
+    } while (!valid);
     return { x, y };
 }
 
@@ -49,42 +56,91 @@ function killPlayer(id) {
     io.emit("playerLeft", id);
 }
 
+function restartRound() {
+    console.log("Restarting round...");
+    generateObstacles();
+
+    for (const id in players) {
+        const pos = getRandomPositionAvoidingObstacles();
+        players[id].x = pos.x;
+        players[id].y = pos.y;
+        players[id].hp = 100;
+    }
+    io.emit("roundRestart", { players, obstacles });
+}
+
 io.on("connection", (socket) => {
     console.log("New client connected:", socket.id);
-
-    const spawn = getSafeSpawn();
+    const pos = getRandomPositionAvoidingObstacles();
     const newPlayer = {
-        x: spawn.x,
-        y: spawn.y,
+        x: pos.x,
+        y: pos.y,
         color: "#" + Math.floor(Math.random() * 16777215).toString(16),
-        hp: 100
+        hp: 100,
     };
     players[socket.id] = newPlayer;
 
-    socket.emit("init", { id: socket.id, players });
-    socket.emit("obstacles", obstacles);
+    socket.emit("init", { id: socket.id, players, obstacles });
     socket.broadcast.emit("playerJoined", { id: socket.id, player: newPlayer });
 
     socket.on("move", (data) => {
         if (players[socket.id]) {
-            players[socket.id].x = data.x;
-            players[socket.id].y = data.y;
+            let newX = data.x;
+            let newY = data.y;
+            let collides = false;
 
-            socket.broadcast.emit("update", {
-                id: socket.id,
-                x: data.x,
-                y: data.y,
-                hp: players[socket.id].hp
-            });
+            // Проверка столкновений с препятствиями
+            for (const obs of obstacles) {
+                if (
+                    newX + 30 > obs.x &&
+                    newX < obs.x + obs.w &&
+                    newY + 30 > obs.y &&
+                    newY < obs.y + obs.h
+                ) {
+                    collides = true;
+                    break;
+                }
+            }
+
+            // Проверка столкновений с другими игроками
+            if (!collides) {
+                for (const id in players) {
+                    if (id === socket.id) continue;
+                    const p = players[id];
+                    if (
+                        newX + 30 > p.x &&
+                        newX < p.x + 30 &&
+                        newY + 30 > p.y &&
+                        newY < p.y + 30
+                    ) {
+                        collides = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!collides) {
+                players[socket.id].x = newX;
+                players[socket.id].y = newY;
+
+                socket.broadcast.emit("update", {
+                    id: socket.id,
+                    x: newX,
+                    y: newY,
+                    hp: players[socket.id].hp,
+                });
+            }
         }
     });
 
+
     socket.on("shoot", (data) => {
+        if (!players[socket.id]) return; // Игрок должен быть жив
         const bullet = {
             x: data.x,
             y: data.y,
             dir: data.dir,
-            owner: socket.id
+            owner: socket.id,
         };
         bullets.push(bullet);
         io.emit("bulletFired", bullet);
@@ -97,10 +153,14 @@ io.on("connection", (socket) => {
     });
 });
 
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server port: ${PORT}`);
+});
+
 setInterval(() => {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
-
         b.x += b.dir.x * 8;
         b.y += b.dir.y * 8;
 
@@ -121,22 +181,31 @@ setInterval(() => {
             ) {
                 p.hp -= 25;
                 bullets.splice(i, 1);
-
                 io.emit("update", {
                     id,
                     x: p.x,
                     y: p.y,
-                    hp: p.hp
+                    hp: p.hp,
                 });
-
-                if (p.hp <= 0) killPlayer(id);
+                if (p.hp <= 0) {
+                    killPlayer(id);
+                }
                 break;
             }
         }
     }
-}, 1000 / 120);
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+    // Проверяем количество живых игроков
+    const alivePlayers = Object.values(players).filter((p) => p.hp > 0);
+    console.log(`Alive: ${alivePlayers.length}, Total: ${Object.keys(players).length}, Restarting: ${restarting}`);
+    if (alivePlayers.length <= 1 && Object.keys(players).length > 1) {
+        if (!restarting) {
+            restarting = true;
+            console.log("Scheduling round restart...");
+            setTimeout(() => {
+                restartRound();
+                restarting = false;
+            }, 1000);
+        }
+    }
+}, 1000 / 120);
