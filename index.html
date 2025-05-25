@@ -30,7 +30,8 @@
     socket.on("init", (data) => {
       playerId = data.id;
       Object.assign(players, data.players);
-      draw();
+        draw();
+        gameLoop();
     });
 
     socket.on("playerJoined", ({ id, player }) => {
@@ -70,17 +71,55 @@
         }
 
     let speed = 5;
-    document.addEventListener("keydown", (e) => {
-      const me = players[playerId];
-      if (!me) return;
+        const keys = {
+            ArrowUp: false,
+            ArrowDown: false,
+            ArrowLeft: false,
+            ArrowRight: false,
+        };
 
-      if (e.key === "ArrowUp") me.y -= speed;
-      if (e.key === "ArrowDown") me.y += speed;
-      if (e.key === "ArrowLeft") me.x -= speed;
-      if (e.key === "ArrowRight") me.x += speed;
+        document.addEventListener("keydown", (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+        });
+        document.addEventListener("keyup", (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        });
 
-      socket.emit("move", { x: me.x, y: me.y });
-    });
+        function gameLoop() {
+            const me = players[playerId];
+            if (!me) return;
+
+            let moved = false;
+
+            if (keys.ArrowUp) {
+                me.y -= speed;
+                moved = true;
+            }
+            if (keys.ArrowDown) {
+                me.y += speed;
+                moved = true;
+            }
+            if (keys.ArrowLeft) {
+                me.x -= speed;
+                moved = true;
+            }
+            if (keys.ArrowRight) {
+                me.x += speed;
+                moved = true;
+            }
+
+            // Границы карты
+            me.x = Math.max(0, Math.min(canvas.width - 30, me.x));
+            me.y = Math.max(0, Math.min(canvas.height - 30, me.y));
+
+            // Отправляем на сервер только если двигался
+            if (moved) {
+                socket.emit("move", { x: me.x, y: me.y });
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
 
     setTimeout(sendMove, 300);
     </script>
