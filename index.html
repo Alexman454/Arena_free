@@ -26,12 +26,17 @@
 
     let playerId = null;
     const players = {};
+    const bullets = [];
 
     socket.on("init", (data) => {
       playerId = data.id;
       Object.assign(players, data.players);
         draw();
         gameLoop();
+
+    });
+    socket.on("bulletFired", (bullet) => {
+        bullets.push(bullet);
     });
 
     socket.on("playerJoined", ({ id, player }) => {
@@ -54,7 +59,7 @@
 
             for (const id in players) {
                 const p = players[id];
-
+                updateBullets();
                 // Рисуем игрока
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, 30, 30);
@@ -79,7 +84,24 @@
         };
 
         document.addEventListener("keydown", (e) => {
-            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+            if (keys.hasOwnProperty(e.key))
+                if (["w", "a", "s", "d"].includes(e.key.toLowerCase())) {
+                    const me = players[playerId];
+                    if (!me) return;
+
+                    let dir = { x: 0, y: 0 };
+                    if (e.key === "w") dir.y = -1;
+                    if (e.key === "s") dir.y = 1;
+                    if (e.key === "a") dir.x = -1;
+                    if (e.key === "d") dir.x = 1;
+
+                    socket.emit("shoot", {
+                        x: me.x + 15, // центр игрока
+                        y: me.y + 15,
+                        dir
+                    });
+                }
+                keys[e.key] = true;
         });
         document.addEventListener("keyup", (e) => {
             if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
@@ -116,8 +138,29 @@
             if (moved) {
                 socket.emit("move", { x: me.x, y: me.y });
             }
+            // Рисуем пули
+            ctx.fillStyle = "yellow";
+            for (const b of bullets) {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
             requestAnimationFrame(gameLoop);
+        }
+        function updateBullets() {
+            for (const b of bullets) {
+                b.x += b.dir.x * 8;
+                b.y += b.dir.y * 8;
+            }
+
+            // Удаление вышедших за экран
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+                    bullets.splice(i, 1);
+                }
+            }
         }
 
 

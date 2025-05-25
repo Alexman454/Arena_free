@@ -50,6 +50,18 @@ io.on("connection", (socket) => {
         delete players[socket.id];
         socket.broadcast.emit("playerLeft", socket.id);
     });
+    socket.on("shoot", (data) => {
+        const bullet = {
+            x: data.x,
+            y: data.y,
+            dir: data.dir,
+            owner: socket.id
+        };
+
+        // рассылаем всем игрокам
+        io.emit("bulletFired", bullet);
+    });
+
 });
 
 const PORT = process.env.PORT || 3000;
