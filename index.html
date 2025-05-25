@@ -3,72 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <title>Game Arena</title>
-	<style>
-    canvas {
-		background: #222;
-		display: block;
-		margin: 0 auto;
-    }
-	h1 {
-		text-align: center;
-	}
-  </style>
+    <style>
+        canvas {
+            background: #222;
+            display: block;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
     <h1>Arena 2D</h1>
     <canvas id="game" width="800" height="600"></canvas>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-    const socket = io("http://26.252.121.144:3000");
+        const socket = io("http://localhost:3000");
 
-	const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
 
-    let playerId = null;
-    const players = {};
-    const bullets = [];
+        let playerId = null;
+        const players = {};
+        const bullets = [];
+        let obstacles = [];
 
-    socket.on("init", (data) => {
-      playerId = data.id;
-      Object.assign(players, data.players);
-        draw();
-        gameLoop();
-
-    });
-    socket.on("bulletFired", (bullet) => {
-        bullets.push(bullet);
-    });
-
-    socket.on("playerJoined", ({ id, player }) => {
-      players[id] = player;
-    });
-
+        socket.on("init", (data) => {
+            playerId = data.id;
+            Object.assign(players, data.players);
+            draw();
+            gameLoop();
+        });
+        socket.on("obstacles", (data) => {
+            obstacles = data;
+        });
+        socket.on("playerJoined", ({ id, player }) => {
+            players[id] = player;
+        });
         socket.on("update", ({ id, x, y, hp }) => {
             if (players[id]) {
                 players[id].x = x;
                 players[id].y = y;
-                if (hp !== undefined) players[id].hp = hp;
+                players[id].hp = hp;
             }
         });
+        socket.on("playerLeft", (id) => {
+            delete players[id];
+        });
+        socket.on("bulletFired", (bullet) => {
+            bullets.push(bullet);
+        });
 
-    socket.on("playerLeft", (id) => {
-      delete players[id];
-    });
+        function collides(x, y) {
+            for (const o of obstacles) {
+                if (
+                    x < o.x + o.width &&
+                    x + 30 > o.x &&
+                    y < o.y + o.height &&
+                    y + 30 > o.y
+                ) return true;
+            }
+            for (const id in players) {
+                if (id === playerId) continue;
+                const p = players[id];
+                if (
+                    x < p.x + 30 &&
+                    x + 30 > p.x &&
+                    y < p.y + 30 &&
+                    y + 30 > p.y
+                ) return true;
+            }
+            return false;
+        }
+
+        function drawObstacles() {
+            ctx.fillStyle = "gray";
+            for (const o of obstacles) {
+                ctx.fillRect(o.x, o.y, o.width, o.height);
+            }
+        }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawObstacles();
 
             for (const id in players) {
                 const p = players[id];
-                updateBullets();
-                // Рисуем игрока
+
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, 30, 30);
+
                 ctx.fillStyle = "red";
                 ctx.fillRect(p.x, p.y - 10, 30, 5);
                 ctx.fillStyle = "lime";
                 ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
-                // Обводка для текущего игрока
+
                 if (id === playerId) {
                     ctx.strokeStyle = "white";
                     ctx.lineWidth = 2;
@@ -76,10 +107,17 @@
                 }
             }
 
+            ctx.fillStyle = "yellow";
+            for (const b of bullets) {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
             requestAnimationFrame(draw);
         }
 
-    let speed = 5;
+        let speed = 5;
         const keys = {
             ArrowUp: false,
             ArrowDown: false,
@@ -88,89 +126,62 @@
         };
 
         document.addEventListener("keydown", (e) => {
-            const key = e.key.toLowerCase();
-
-            // Обработка стрельбы по WASD
-            if (["w", "a", "s", "d"].includes(key)) {
+            if (["w", "a", "s", "d"].includes(e.key.toLowerCase())) {
                 const me = players[playerId];
                 if (!me) return;
 
                 let dir = { x: 0, y: 0 };
-                if (key === "w") dir.y = -1;
-                if (key === "s") dir.y = 1;
-                if (key === "a") dir.x = -1;
-                if (key === "d") dir.x = 1;
+                if (e.key === "w") dir.y = -1;
+                if (e.key === "s") dir.y = 1;
+                if (e.key === "a") dir.x = -1;
+                if (e.key === "d") dir.x = 1;
 
-                const bullet = {
-                    x: me.x + 15,
-                    y: me.y + 15,
-                    dir
-                };
-
-                console.log("Emitting shoot:", bullet);
-                socket.emit("shoot", bullet);
+                socket.emit("shoot", { x: me.x + 15, y: me.y + 15, dir });
             }
-
-            // Обработка движения стрелками
-            if (keys.hasOwnProperty(e.key)) {
-                keys[e.key] = true;
-            }
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
         });
-
-
-
         document.addEventListener("keyup", (e) => {
             if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
         });
 
         function gameLoop() {
             const me = players[playerId];
-            if (!me) return;
+            if (!me) {
+                requestAnimationFrame(gameLoop);
+                return;
+            }
 
+            let newX = me.x;
+            let newY = me.y;
             let moved = false;
 
-            if (keys.ArrowUp) {
-                me.y -= speed;
-                moved = true;
-            }
-            if (keys.ArrowDown) {
-                me.y += speed;
-                moved = true;
-            }
-            if (keys.ArrowLeft) {
-                me.x -= speed;
-                moved = true;
-            }
-            if (keys.ArrowRight) {
-                me.x += speed;
+            if (keys.ArrowUp) newY -= speed;
+            if (keys.ArrowDown) newY += speed;
+            if (keys.ArrowLeft) newX -= speed;
+            if (keys.ArrowRight) newX += speed;
+
+            newX = Math.max(0, Math.min(canvas.width - 30, newX));
+            newY = Math.max(0, Math.min(canvas.height - 30, newY));
+
+            if (!collides(newX, newY)) {
+                me.x = newX;
+                me.y = newY;
                 moved = true;
             }
 
-            // Границы карты
-            me.x = Math.max(0, Math.min(canvas.width - 30, me.x));
-            me.y = Math.max(0, Math.min(canvas.height - 30, me.y));
-
-            // Отправляем на сервер только если двигался
             if (moved) {
                 socket.emit("move", { x: me.x, y: me.y });
             }
-            // Рисуем пули
-            ctx.fillStyle = "yellow";
-            for (const b of bullets) {
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
-                ctx.fill();
-            }
 
+            updateBullets();
             requestAnimationFrame(gameLoop);
         }
+
         function updateBullets() {
             for (const b of bullets) {
                 b.x += b.dir.x * 8;
                 b.y += b.dir.y * 8;
             }
-
-            // Удаление вышедших за экран
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
