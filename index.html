@@ -43,12 +43,13 @@
       players[id] = player;
     });
 
-    socket.on("update", ({ id, x, y }) => {
-      if (players[id]) {
-        players[id].x = x;
-        players[id].y = y;
-      }
-    });
+        socket.on("update", ({ id, x, y, hp }) => {
+            if (players[id]) {
+                players[id].x = x;
+                players[id].y = y;
+                if (hp !== undefined) players[id].hp = hp;
+            }
+        });
 
     socket.on("playerLeft", (id) => {
       delete players[id];
@@ -63,7 +64,10 @@
                 // Рисуем игрока
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, 30, 30);
-
+                ctx.fillStyle = "red";
+                ctx.fillRect(p.x, p.y - 10, 30, 5);
+                ctx.fillStyle = "lime";
+                ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
                 // Обводка для текущего игрока
                 if (id === playerId) {
                     ctx.strokeStyle = "white";
@@ -84,25 +88,37 @@
         };
 
         document.addEventListener("keydown", (e) => {
-            if (keys.hasOwnProperty(e.key))
-                if (["w", "a", "s", "d"].includes(e.key.toLowerCase())) {
-                    const me = players[playerId];
-                    if (!me) return;
+            const key = e.key.toLowerCase();
 
-                    let dir = { x: 0, y: 0 };
-                    if (e.key === "w") dir.y = -1;
-                    if (e.key === "s") dir.y = 1;
-                    if (e.key === "a") dir.x = -1;
-                    if (e.key === "d") dir.x = 1;
+            // Обработка стрельбы по WASD
+            if (["w", "a", "s", "d"].includes(key)) {
+                const me = players[playerId];
+                if (!me) return;
 
-                    socket.emit("shoot", {
-                        x: me.x + 15, // центр игрока
-                        y: me.y + 15,
-                        dir
-                    });
-                }
+                let dir = { x: 0, y: 0 };
+                if (key === "w") dir.y = -1;
+                if (key === "s") dir.y = 1;
+                if (key === "a") dir.x = -1;
+                if (key === "d") dir.x = 1;
+
+                const bullet = {
+                    x: me.x + 15,
+                    y: me.y + 15,
+                    dir
+                };
+
+                console.log("Emitting shoot:", bullet);
+                socket.emit("shoot", bullet);
+            }
+
+            // Обработка движения стрелками
+            if (keys.hasOwnProperty(e.key)) {
                 keys[e.key] = true;
+            }
         });
+
+
+
         document.addEventListener("keyup", (e) => {
             if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
         });
@@ -162,9 +178,6 @@
                 }
             }
         }
-
-
-    setTimeout(sendMove, 300);
     </script>
 </body>
 </html>
